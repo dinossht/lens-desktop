@@ -274,7 +274,11 @@ def main():
                 urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=2)
             ):
                 if t.get("type") == "page" and "vsrid" in t.get("url", ""):
-                    style_window(x, y, w, h)
+                    # No styling call here: the thread started at launch is
+                    # still re-asserting the frame, and style_window now runs
+                    # to its deadline rather than returning early — calling it
+                    # again would block for 20s before the Esc watcher starts,
+                    # which is exactly when Esc gets pressed.
                     subprocess.Popen(
                         [sys.executable, os.path.abspath(__file__),
                          "--watch-esc", str(port), str(proc.pid)],
