@@ -17,8 +17,8 @@ your desktop. This closes that gap.
 | Key | What happens |
 |-----|--------------|
 | `Super+Shift+S` | Circle something → Google Lens panel |
-| `Super+Shift+T` | Circle something → its text on the clipboard (Lens OCR) |
-| `Super+Shift+R` | Circle something → its translation on the clipboard |
+| `Super+Shift+C` | Circle something → its text on the clipboard (Lens OCR) |
+| `Super+Shift+T` | Circle something → its translation on the clipboard |
 | `Super+Shift+A` | Circle something → ask Gemini about it |
 
 The same four exist as launchers in the app grid, pinnable to the dock, and as
@@ -56,7 +56,7 @@ cd lens-desktop
 That creates a Python virtualenv for the OCR library, installs the icons,
 launchers and hotkeys, and links `lens` into `~/.local/bin`.
 
-Try it with `Super+Shift+T`: circle some text on screen and paste it somewhere.
+Try it with `Super+Shift+C`: circle some text on screen and paste it somewhere.
 Nothing needs signing in for that.
 
 ### Setting up Ask Gemini

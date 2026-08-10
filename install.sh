@@ -73,9 +73,9 @@ cur = ast.literal_eval(out) if out.startswith("[") else []
 
 binds = [
     ("lens-search", "Lens: search screen region",    "<Super><Shift>s", LENS),
-    ("lens-text",   "Lens: copy text from screen",   "<Super><Shift>t", f"{LENS} text"),
+    ("lens-text",   "Lens: copy text from screen",   "<Super><Shift>c", f"{LENS} text"),
     ("lens-ask",    "Lens: ask Gemini about region", "<Super><Shift>a", f"{LENS} ask"),
-    ("lens-translate", "Lens: translate screen text", "<Super><Shift>r", f"{LENS} tr"),
+    ("lens-translate", "Lens: translate screen text", "<Super><Shift>t", f"{LENS} tr"),
 ]
 for slug, name, binding, cmd in binds:
     path = BASE + slug + "/"
