@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+# lens — Google Lens / Gemini for anything on the Linux desktop.
+#
+#   lens            freeze the screen, circle something -> Google Lens panel
+#   lens region     rectangle drag instead of a lasso
+#   lens full       whole screen  -> Google Lens panel
+#   lens text       circle something -> OCR the text straight to the clipboard
+#   lens tr [lang]  circle something -> translate it to the clipboard (default en)
+#                   (set LENS_TR_LANG to change the default target language)
+#   lens ask [q]    circle something -> ask Gemini about it (your Google AI sub)
+#   lens web        circle something -> clipboard + gemini.google.com to paste
+#   lens login      open a terminal to sign Gemini (agy) in — needs a real TTY
+#
+# Images go straight to Google. Nothing is uploaded to any third-party host.
+
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "$0")")"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/lens-desktop"
+SHOT="$CACHE/shot.png"
+LENS_VENV="$HOME/.local/share/lens-desktop/venv"
+
+mkdir -p "$CACHE"
+
+note() { notify-send -a "lens" -i camera-photo "$@" >/dev/null 2>&1 || true; }
+die()  { note "lens failed" "$1"; echo "lens: $1" >&2; exit 1; }
+
+# --- capture ---------------------------------------------------------------
+
+capture() {
+  # An existing image file in $LENS_FILE is used instead of grabbing the screen,
+  # so every command also works as `lens <cmd> path/to/image.png`.
+  if [[ -n "${LENS_FILE:-}" ]]; then
+    [[ -s "$LENS_FILE" ]] || die "no such image: $LENS_FILE"
+    cp -f "$LENS_FILE" "$SHOT"
+    return
+  fi
+  rm -f "$SHOT"
+  case "${1:-lasso}" in
+    full)   flameshot full --raw > "$SHOT" 2>/dev/null ;;
+    region) flameshot gui  --raw > "$SHOT" 2>/dev/null ;;
+    # Freeze the screen and circle the thing, the way Android does it.
+    *)      python3 "$HERE/lasso.py" "$SHOT" || true ;;
+  esac
+  # Cancelling leaves no file (lasso) or an empty stream (flameshot).
+  [[ -s "$SHOT" ]] || { echo "lens: capture cancelled" >&2; exit 0; }
+}
+
+# xclip stays resident to own the selection, so detach its stdio or it keeps
+# the caller's pipes open and anything reading our output hangs. Wayland has no
+# X selection at all, hence the wl-clipboard fallback.
+to_clipboard() {
+  if command -v xclip >/dev/null && [[ "${XDG_SESSION_TYPE:-}" != "wayland" ]]; then
+    xclip -selection clipboard -t image/png -i "$SHOT" </dev/null >/dev/null 2>&1
+  elif command -v wl-copy >/dev/null; then
+    wl-copy --type image/png < "$SHOT" >/dev/null 2>&1
+  fi
+}
+clip_text() {
+  if command -v xclip >/dev/null && [[ "${XDG_SESSION_TYPE:-}" != "wayland" ]]; then
+    printf '%s' "$1" | xclip -selection clipboard >/dev/null 2>&1
+  elif command -v wl-copy >/dev/null; then
+    printf '%s' "$1" | wl-copy >/dev/null 2>&1
+  fi
+}
+
+open_url() { xdg-open "$1" >/dev/null 2>&1 & disown; }
+
+# --- the Lens panel --------------------------------------------------------
+#
+# A browser tab full of image-search results is not what Lens feels like on a
+# phone, so the results go in a chromeless window docked to the screen edge,
+# running from its own Chrome profile. panel.py does the driving; see its
+# docstring for why the upload has to happen inside Google's own page.
+
+PROFILE="$HOME/.local/share/lens-desktop/chrome-profile"
+PIDFILE="$CACHE/panel.pid"
+
+browser() {
+  command -v google-chrome-stable 2>/dev/null && return 0
+  command -v google-chrome 2>/dev/null && return 0
+  command -v chromium 2>/dev/null && return 0
+  return 1
+}
+
+panel() {
+  browser >/dev/null || die "no Chrome/Chromium found"
+
+  # One panel at a time, so a new capture replaces the previous result instead
+  # of stacking windows. Only ever kills Chrome running our own profile — the
+  # match is on the profile path, never on the browser generally.
+  pkill -f -- "--user-data-dir=$PROFILE" >/dev/null 2>&1 || true
+  rm -f "$PROFILE/SingletonLock"
+
+  # Centred on the monitor being used rather than docked to an edge: it reads
+  # as a dialog about the thing you circled instead of a browser side panel.
+  # Centring on the *combined* desktop would straddle the seam once a second
+  # screen is attached, hence asking which monitor the pointer is on.
+  local mon mx my sw sh w h x y scale
+  mon=$(python3 "$HERE/screen.py" 2>/dev/null || echo "0 0 1920 1080 1")
+  read -r mx my sw sh scale <<< "$mon"
+  [[ "$scale" =~ ^[0-9]+$ ]] && (( scale >= 1 )) || scale=1
+
+  w="${LENS_PANEL_WIDTH:-$(( sw / 3 ))}"
+  (( w < 420 )) && w=420
+  h="${LENS_PANEL_HEIGHT:-$(( sh * 82 / 100 ))}"
+  x=$(( mx + (sw - w) / 2 )); y=$(( my + (sh - h) / 2 ))
+
+  mkdir -p "$PROFILE"
+  "$LENS_VENV/bin/python" "$HERE/panel.py" \
+    "$SHOT" "$PROFILE" "$w" "$h" "$x" "$y" "$scale" > "$PIDFILE" 2>"$CACHE/panel.err" \
+    || die "panel failed — see $CACHE/panel.err"
+}
+
+# --- google lens -----------------------------------------------------------
+
+do_lens() {
+  capture "$1"
+  note "Searching Google Lens…"
+  panel
+}
+
+# --- ocr -------------------------------------------------------------------
+
+do_text() {
+  capture lasso
+  [[ -x "$LENS_VENV/bin/lens_scan" ]] || die "OCR not installed — run: $(dirname "$0")/install.sh"
+  local label="Text copied to clipboard"
+  local -a args=(-q "$SHOT")
+  if [[ -n "${1:-}" ]]; then
+    args=(-q "$SHOT" -t "$1")
+    label="Translation copied to clipboard"
+  fi
+  note "Reading text…"
+  local out
+  out=$("$LENS_VENV/bin/lens_scan" "${args[@]}" 2>/dev/null) || die "Lens OCR request failed"
+  [[ -n "${out//[[:space:]]/}" ]] || { note "No text found"; exit 0; }
+  clip_text "$out"
+  note "$label" "${out:0:180}"
+}
+
+# --- gemini ----------------------------------------------------------------
+
+# Google retired Gemini CLI's personal "Login with Google" on 2026-06-18 and
+# moved Google AI Pro/Ultra accounts to the Antigravity CLI, so prefer `agy`.
+gemini_bin() {
+  if [[ -x "$HOME/.local/bin/agy" ]]; then printf '%s' "$HOME/.local/bin/agy"; return 0; fi
+  command -v agy 2>/dev/null && return 0
+  local dir
+  dir=$(ls -d "$HOME"/.nvm/versions/node/v* 2>/dev/null | sort -V | tail -1)
+  [[ -n "$dir" && -x "$dir/bin/gemini" ]] && { printf '%s' "$dir/bin/gemini"; return 0; }
+  command -v gemini 2>/dev/null && return 0
+  return 1
+}
+
+open_login_terminal() {
+  local term
+  for term in kitty gnome-terminal x-terminal-emulator xterm; do
+    if command -v "$term" >/dev/null; then
+      setsid "$term" -e "$HOME/.local/bin/agy" >/dev/null 2>&1 &
+      disown
+      return 0
+    fi
+  done
+  zenity --info --width=380 --title="Sign in to Gemini" \
+    --text="Run this in a terminal to sign in:\n\n    agy" 2>/dev/null || true
+}
+
+do_ask() {
+  gemini_bin >/dev/null || die "no Gemini CLI found — run: $HERE/install.sh"
+  # One dark window asks, waits and answers. It runs agy itself so the card can
+  # spin while the answer is on its way, and so the whole interaction is a
+  # single window in a single theme rather than three zenity dialogs.
+  if [[ -n "${LENS_FILE:-}" ]]; then
+    capture lasso
+    python3 "$HERE/ask_ui.py" "$SHOT" "$@" >/dev/null 2>&1 || true
+  else
+    # It owns the capture too, so that with LENS_ASK_PREWARM=1 it can start agy
+    # while the lasso is still open.
+    python3 "$HERE/ask_ui.py" --capture "$HERE/lasso.py" "$SHOT" "$@" \
+      >/dev/null 2>&1 || true
+  fi
+}
+
+do_web() {
+  capture lasso
+  to_clipboard
+  note "Screenshot copied" "Paste into Gemini with Ctrl+V"
+  open_url "https://gemini.google.com/app"
+}
+
+# --- dispatch --------------------------------------------------------------
+
+cmd="${1:-lasso}"; shift || true
+
+# A trailing image path anywhere in the args replaces the screen capture.
+LENS_FILE=""
+args=()
+for a in "$@"; do
+  if [[ -f "$a" ]]; then LENS_FILE="$a"; else args+=("$a"); fi
+done
+set -- "${args[@]+"${args[@]}"}"
+if [[ -z "$LENS_FILE" && -f "$cmd" ]]; then LENS_FILE="$cmd"; cmd=lasso; fi
+export LENS_FILE
+
+case "$cmd" in
+  lasso|circle) do_lens lasso ;;
+  region|snip)  do_lens region ;;
+  full|screen)  do_lens full ;;
+  text|ocr)     do_text ;;
+  tr|translate) do_text "${1:-${LENS_TR_LANG:-en}}" ;;
+  ask|gemini)   do_ask "$@" ;;
+  login)        open_login_terminal ;;
+  web)          do_web ;;
+  -h|--help|help)
+    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command: $cmd (try: lens --help)" ;;
+esac

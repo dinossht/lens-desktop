@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Lens: Copy Text
+GenericName=Screen OCR
+Comment=Circle text anywhere on screen and copy it to the clipboard
+Exec=lens text
+Icon=lens-desktop-text
+Terminal=false
+Categories=Utility;
+Keywords=ocr;text;copy;clipboard;screenshot;

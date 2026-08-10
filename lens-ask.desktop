@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Lens: Ask Gemini
+GenericName=Ask about a selection
+Comment=Circle anything on screen and ask Gemini about it
+Exec=lens ask
+Icon=lens-desktop-ask
+Terminal=false
+Categories=Utility;
+Keywords=gemini;ask;ai;explain;screenshot;
+StartupWMClass=lens-ask

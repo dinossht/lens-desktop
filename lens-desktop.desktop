@@ -1,0 +1,29 @@
+[Desktop Entry]
+Type=Application
+Name=Lens
+GenericName=Visual search
+Comment=Circle anything on screen and search it with Google Lens
+Exec=lens
+Icon=lens-desktop
+Terminal=false
+Categories=Utility;
+Keywords=lens;search;ocr;translate;screenshot;
+# Chrome stamps this on the panel window via --class, which is how GNOME ties
+# the window to this entry and shows our name and icon instead of Chrome's.
+StartupWMClass=lens-desktop
+Actions=text;translate;ask;
+
+[Desktop Action text]
+Name=Copy text from screen
+Exec=lens text
+Icon=lens-desktop-text
+
+[Desktop Action translate]
+Name=Translate text on screen
+Exec=lens tr
+Icon=lens-desktop-translate
+
+[Desktop Action ask]
+Name=Ask Gemini about a selection
+Exec=lens ask
+Icon=lens-desktop-ask

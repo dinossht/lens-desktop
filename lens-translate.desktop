@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Lens: Translate
+GenericName=Translate on screen
+Comment=Circle text anywhere on screen and copy the translation to the clipboard
+Exec=lens tr
+Icon=lens-desktop-translate
+Terminal=false
+Categories=Utility;
+Keywords=translate;language;ocr;clipboard;screenshot;
